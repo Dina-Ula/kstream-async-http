@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           xmlns:core="urn:demo:rcbs"
+           targetNamespace="urn:demo:rcbs:e535"
+           xmlns="urn:demo:rcbs:e535"
+           elementFormDefault="qualified"
+           attributeFormDefault="unqualified">
+
+    <xs:import namespace="urn:demo:rcbs" schemaLocation="../core/account-posting-core.xsd"/>
+
+    <xs:element name="E535AccountPostingRequest" type="E535AccountPostingRequestType"/>
+    <xs:element name="E535AccountPostingResponse" type="E535AccountPostingResponseType"/>
+
+    <xs:complexType name="E535AccountPostingRequestType">
+        <xs:complexContent>
+            <xs:extension base="core:AccountPostingRequestType">
+                <xs:sequence>
+                    <xs:element name="tenantId" type="xs:string"/>
+                </xs:sequence>
+            </xs:extension>
+        </xs:complexContent>
+    </xs:complexType>
+
+    <xs:complexType name="E535AccountPostingResponseType">
+        <xs:complexContent>
+            <xs:extension base="core:AccountPostingResponseType">
+                <xs:sequence>
+                    <xs:element name="e535Reference" type="xs:string" minOccurs="0"/>
+                </xs:sequence>
+            </xs:extension>
+        </xs:complexContent>
+    </xs:complexType>
+</xs:schema>

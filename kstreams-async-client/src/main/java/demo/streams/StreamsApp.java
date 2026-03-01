@@ -12,7 +12,7 @@ import java.util.concurrent.CountDownLatch;
 public class StreamsApp {
     public static void main(String[] args) {
         String bootstrap = System.getProperty("bootstrap", "localhost:9092");
-        String httpUrl   = System.getProperty("httpUrl", "http://localhost:8080/post");
+        String rcbsBaseUrl = System.getProperty("rcbsBaseUrl", "http://localhost:8080");
         int rateLimitPerSecond = Integer.parseInt(System.getProperty("rateLimitPerSecond", "200"));
 
         Properties props = new Properties();
@@ -37,7 +37,7 @@ public class StreamsApp {
         builder.addStateStore(store);
 
         ProcessorSupplier<String, String, String, String> supplier =
-                () -> new AsyncHttpProcessor(storeName, httpUrl, 32, 120, rateLimitPerSecond);
+                () -> new AsyncHttpProcessor(storeName, rcbsBaseUrl, 32, 120, rateLimitPerSecond);
 
         builder.stream("xml-requests", Consumed.with(Serdes.String(), Serdes.String()))
                 .process(supplier, storeName)
@@ -60,7 +60,7 @@ public class StreamsApp {
         streams.start();
 
         System.out.println("Streams started. Consuming from xml-requests, producing to xml-responses");
-        System.out.println("HTTP URL: " + httpUrl);
+        System.out.println("rCBS base URL: " + rcbsBaseUrl);
         System.out.println("Rate limit per second: " + rateLimitPerSecond);
 
         try {

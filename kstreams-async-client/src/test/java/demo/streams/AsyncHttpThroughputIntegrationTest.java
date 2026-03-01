@@ -53,9 +53,9 @@ class AsyncHttpThroughputIntegrationTest {
     @Timeout(30)
     void asyncProcessorShouldExceedFiveTpsWithDelayedHttp() throws Exception {
         int port = startDelayedHttpServer();
-        String httpUrl = "http://localhost:" + port + "/post";
+        String rcbsBaseUrl = "http://localhost:" + port;
 
-        Topology topology = buildTopology(httpUrl);
+        Topology topology = buildTopology(rcbsBaseUrl);
         Properties props = new Properties();
         props.put(StreamsConfig.APPLICATION_ID_CONFIG, "async-throughput-it");
         props.put(StreamsConfig.BOOTSTRAP_SERVERS_CONFIG, "dummy:9092");
@@ -98,7 +98,7 @@ class AsyncHttpThroughputIntegrationTest {
         }
     }
 
-    private Topology buildTopology(String httpUrl) {
+    private Topology buildTopology(String rcbsBaseUrl) {
         StreamsBuilder builder = new StreamsBuilder();
 
         String storeName = "request-store";
@@ -111,7 +111,7 @@ class AsyncHttpThroughputIntegrationTest {
         builder.addStateStore(store);
 
         ProcessorSupplier<String, String, String, String> supplier =
-                () -> new AsyncHttpProcessor(storeName, httpUrl, 32, 120, 200);
+                () -> new AsyncHttpProcessor(storeName, rcbsBaseUrl, 32, 120, 200);
 
         builder.stream("xml-requests", Consumed.with(Serdes.String(), Serdes.String()))
                 .process(supplier, storeName)

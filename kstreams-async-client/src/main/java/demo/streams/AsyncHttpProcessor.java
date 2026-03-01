@@ -1,7 +1,9 @@
 package demo.streams;
 
+import demo.rcbs.CoreRcbsApiHandler;
+import demo.rcbs.E535RcbsApiHandler;
+import demo.rcbs.RcbsApiDispatcher;
 import demo.rcbs.RcbsClientConfig;
-import demo.rcbs.RcbsPostingService;
 import org.apache.kafka.streams.processor.api.*;
 import org.apache.kafka.streams.processor.PunctuationType;
 import org.apache.kafka.streams.state.KeyValueStore;
@@ -18,7 +20,7 @@ public class AsyncHttpProcessor implements Processor<String, String, String, Str
             Pattern.compile("<requestId>(.*?)</requestId>", Pattern.DOTALL);
 
     private final String storeName;
-    private final String httpUrl;
+    private final String baseUrl;
 
     private final Semaphore inFlight;
     private final int maxInFlight;
@@ -28,11 +30,11 @@ public class AsyncHttpProcessor implements Processor<String, String, String, Str
 
     private ProcessorContext<String, String> ctx;
     private KeyValueStore<String, StoreEntry> store;
-    private RcbsPostingService client;
+    private RcbsApiDispatcher dispatcher;
 
-    public AsyncHttpProcessor(String storeName, String httpUrl, int poolSize, int maxInFlight, int rateLimitPerSecond) {
+    public AsyncHttpProcessor(String storeName, String baseUrl, int poolSize, int maxInFlight, int rateLimitPerSecond) {
         this.storeName = storeName;
-        this.httpUrl = httpUrl;
+        this.baseUrl = baseUrl;
         this.maxInFlight = maxInFlight;
         this.poolSize = poolSize;
         this.rateLimitPerSecond = rateLimitPerSecond;
@@ -45,16 +47,10 @@ public class AsyncHttpProcessor implements Processor<String, String, String, Str
     public void init(ProcessorContext<String, String> context) {
         this.ctx = context;
         this.store = context.getStateStore(storeName);
-        this.client = new RcbsPostingService(
-                new RcbsClientConfig(
-                        httpUrl,
-                        200, 200,
-                        2000, 10000,
-                        poolSize, 10_000,
-                        maxInFlight,
-                        rateLimitPerSecond
-                )
-        );
+        this.dispatcher = new RcbsApiDispatcher(java.util.List.of(
+                new CoreRcbsApiHandler(clientConfig("/post")),
+                new E535RcbsApiHandler(clientConfig("/eportal/E535"))
+        ));
 
         // drain completions frequently (low latency)
         context.schedule(Duration.ofMillis(10), PunctuationType.WALL_CLOCK_TIME, this::onPunctuate);
@@ -98,7 +94,7 @@ public class AsyncHttpProcessor implements Processor<String, String, String, Str
     }
 
     private void dispatchAsync(StoreEntry entry) {
-        client.postAsync(entry.requestId, entry.requestXml)
+        dispatcher.postAsync(entry.requestXml)
                 .whenComplete((respXml, err) -> {
                     try {
                         Throwable cause = (err instanceof CompletionException ce && ce.getCause() != null)
@@ -170,6 +166,23 @@ public class AsyncHttpProcessor implements Processor<String, String, String, Str
 
     @Override
     public void close() {
-        try { client.close(); } catch (Exception ignored) {}
+        try { dispatcher.close(); } catch (Exception ignored) {}
+    }
+
+    private RcbsClientConfig clientConfig(String path) {
+        return new RcbsClientConfig(
+                joinUrl(baseUrl, path),
+                200, 200,
+                2000, 10000,
+                poolSize, 10_000,
+                maxInFlight,
+                rateLimitPerSecond
+        );
+    }
+
+    private static String joinUrl(String base, String path) {
+        String normalizedBase = base.endsWith("/") ? base.substring(0, base.length() - 1) : base;
+        String normalizedPath = path.startsWith("/") ? path : "/" + path;
+        return normalizedBase + normalizedPath;
     }
 }
