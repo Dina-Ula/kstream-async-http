@@ -1,26 +1,28 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
-           targetNamespace="urn:demo:rcbs"
-           xmlns="urn:demo:rcbs"
+           targetNamespace="urn:demo:rcbs:e538"
+           xmlns="urn:demo:rcbs:e538"
            elementFormDefault="qualified"
            attributeFormDefault="unqualified">
 
-    <xs:element name="AccountPostingRequest" type="AccountPostingRequestType"/>
-    <xs:element name="AccountPostingResponse" type="AccountPostingResponseType"/>
+    <xs:element name="E538AccountPostingRequest" type="E538AccountPostingRequestType"/>
+    <xs:element name="E538AccountPostingResponse" type="E538AccountPostingResponseType"/>
 
-    <xs:complexType name="AccountPostingRequestType">
+    <xs:complexType name="E538AccountPostingRequestType">
         <xs:sequence>
             <xs:element name="requestId" type="xs:string"/>
             <xs:element name="amount" type="xs:decimal"/>
+            <xs:element name="tenantId" type="xs:string"/>
         </xs:sequence>
     </xs:complexType>
 
-    <xs:complexType name="AccountPostingResponseType">
+    <xs:complexType name="E538AccountPostingResponseType">
         <xs:sequence>
             <xs:element name="requestId" type="xs:string"/>
             <xs:element name="status" type="xs:string"/>
             <xs:element name="reference" type="xs:string" minOccurs="0"/>
             <xs:element name="message" type="xs:string" minOccurs="0"/>
+            <xs:element name="e538Reference" type="xs:string" minOccurs="0"/>
         </xs:sequence>
     </xs:complexType>
 </xs:schema>

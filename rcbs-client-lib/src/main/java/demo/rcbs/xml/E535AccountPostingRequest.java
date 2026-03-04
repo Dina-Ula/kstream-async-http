@@ -13,10 +13,10 @@ import java.math.BigDecimal;
 @XmlType(name = "E535AccountPostingRequestType", namespace = "urn:demo:rcbs:e535",
         propOrder = {"requestId", "amount", "tenantId"})
 public class E535AccountPostingRequest {
-    @XmlElement(name = "requestId", namespace = "urn:demo:rcbs", required = true)
+    @XmlElement(name = "requestId", namespace = "urn:demo:rcbs:e535", required = true)
     private String requestId;
 
-    @XmlElement(name = "amount", namespace = "urn:demo:rcbs", required = true)
+    @XmlElement(name = "amount", namespace = "urn:demo:rcbs:e535", required = true)
     private BigDecimal amount;
 
     @XmlElement(name = "tenantId", namespace = "urn:demo:rcbs:e535", required = true)

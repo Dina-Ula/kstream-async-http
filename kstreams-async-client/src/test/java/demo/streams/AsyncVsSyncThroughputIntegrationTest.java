@@ -15,9 +15,9 @@ import org.apache.kafka.common.serialization.StringDeserializer;
 import org.apache.kafka.common.serialization.StringSerializer;
 import org.apache.kafka.streams.StreamsBuilder;
 import org.apache.kafka.streams.StreamsConfig;
-import org.apache.kafka.streams.Topology;
 import org.apache.kafka.streams.TestInputTopic;
 import org.apache.kafka.streams.TestOutputTopic;
+import org.apache.kafka.streams.Topology;
 import org.apache.kafka.streams.TopologyTestDriver;
 import org.apache.kafka.streams.kstream.Consumed;
 import org.apache.kafka.streams.processor.api.ProcessorSupplier;
@@ -35,7 +35,6 @@ import java.io.InputStream;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Properties;
 import java.util.UUID;
@@ -43,10 +42,9 @@ import java.util.concurrent.Executors;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-class AsyncHttpThroughputIntegrationTest {
+class AsyncVsSyncThroughputIntegrationTest {
 
     private static final Pattern REQUEST_ID =
             Pattern.compile("<requestId>(.*?)</requestId>", Pattern.DOTALL);
@@ -61,21 +59,29 @@ class AsyncHttpThroughputIntegrationTest {
     }
 
     @Test
-    @Timeout(30)
-    void asyncProcessorShouldExceedFiveTpsWithDelayedHttp() throws Exception {
-        int port = startDelayedHttpServer();
+    @Timeout(40)
+    void asyncShouldProcessMoreResponsesThanSyncWithinSameTimeWindow() throws Exception {
+        int port = startDelayedHttpServer(200);
         String rcbsBaseUrl = "http://localhost:" + port;
 
-        Topology topology = buildTopology(rcbsBaseUrl);
-        Properties props = new Properties();
-        props.put(StreamsConfig.APPLICATION_ID_CONFIG, "async-throughput-it");
-        props.put(StreamsConfig.BOOTSTRAP_SERVERS_CONFIG, "dummy:9092");
-        props.put(StreamsConfig.DEFAULT_KEY_SERDE_CLASS_CONFIG, Serdes.StringSerde.class);
-        props.put(StreamsConfig.DEFAULT_VALUE_SERDE_CLASS_CONFIG, Serdes.StringSerde.class);
-        props.put(StreamsConfig.COMMIT_INTERVAL_MS_CONFIG, 1000);
+        int attempts = 120;
+        Duration window = Duration.ofSeconds(4);
 
-        int recordCount = 600;
-        long startedNs = System.nanoTime();
+        int asyncCompleted = runAsyncWindow(rcbsBaseUrl, attempts, window);
+        int syncCompleted = runSyncWindow(rcbsBaseUrl, attempts, window);
+
+        System.out.println("Throughput comparison: asyncCompleted=" + asyncCompleted
+                + ", syncCompleted=" + syncCompleted
+                + ", windowMs=" + window.toMillis()
+                + ", attempts=" + attempts);
+
+        assertTrue(asyncCompleted > syncCompleted,
+                "Expected async to complete more requests than sync in same time window");
+    }
+
+    private int runAsyncWindow(String rcbsBaseUrl, int attempts, Duration window) {
+        Topology topology = buildAsyncTopology(rcbsBaseUrl);
+        Properties props = defaultStreamsProps("async-vs-sync-async-it");
 
         try (TopologyTestDriver driver = new TopologyTestDriver(topology, props)) {
             TestInputTopic<String, String> input = driver.createInputTopic(
@@ -83,34 +89,56 @@ class AsyncHttpThroughputIntegrationTest {
             TestOutputTopic<String, String> output = driver.createOutputTopic(
                     "xml-responses", new StringDeserializer(), new StringDeserializer());
 
-            for (int i = 0; i < recordCount; i++) {
-                String requestId = "REQ-" + i;
+            for (int i = 0; i < attempts; i++) {
+                String requestId = "A-REQ-" + i;
                 input.pipeInput(requestId, requestXml(requestId));
             }
 
-            List<String> responses = new ArrayList<>();
-            long deadline = System.nanoTime() + Duration.ofSeconds(12).toNanos();
-            while (responses.size() < recordCount && System.nanoTime() < deadline) {
+            long deadline = System.nanoTime() + window.toNanos();
+            int completed = 0;
+            while (System.nanoTime() < deadline) {
                 driver.advanceWallClockTime(Duration.ofMillis(20));
                 while (!output.isEmpty()) {
-                    String response = output.readValue();
-                    responses.add(response);
+                    output.readValue();
+                    completed++;
                 }
-                Thread.sleep(10);
             }
-
-            long elapsedMs = Duration.ofNanos(System.nanoTime() - startedNs).toMillis();
-            double tps = recordCount / (elapsedMs / 1000.0d);
-            System.out.println("Measured async throughput: " + tps + " TPS over " + recordCount + " records");
-
-            assertEquals(recordCount, responses.size(),
-                    "Expected all responses before timeout; received=" + responses.size());
-            assertTrue(tps > 5.0d,
-                    "Expected throughput > 5 TPS with async HTTP, got " + tps + " TPS");
+            return completed;
         }
     }
 
-    private Topology buildTopology(String rcbsBaseUrl) {
+    private int runSyncWindow(String rcbsBaseUrl, int attempts, Duration window) {
+        Topology topology = buildSyncTopology(rcbsBaseUrl);
+        Properties props = defaultStreamsProps("async-vs-sync-sync-it");
+
+        try (TopologyTestDriver driver = new TopologyTestDriver(topology, props)) {
+            TestInputTopic<String, String> input = driver.createInputTopic(
+                    "xml-requests", new StringSerializer(), new StringSerializer());
+            TestOutputTopic<String, String> output = driver.createOutputTopic(
+                    "xml-responses", new StringDeserializer(), new StringDeserializer());
+
+            long deadline = System.nanoTime() + window.toNanos();
+            int completed = 0;
+            int sent = 0;
+            while (System.nanoTime() < deadline && sent < attempts) {
+                String requestId = "S-REQ-" + sent;
+                input.pipeInput(requestId, requestXml(requestId));
+                sent++;
+
+                while (!output.isEmpty()) {
+                    output.readValue();
+                    completed++;
+                }
+            }
+            while (!output.isEmpty()) {
+                output.readValue();
+                completed++;
+            }
+            return completed;
+        }
+    }
+
+    private Topology buildAsyncTopology(String rcbsBaseUrl) {
         StreamsBuilder builder = new StreamsBuilder();
 
         String storeName = "request-store";
@@ -122,21 +150,7 @@ class AsyncHttpThroughputIntegrationTest {
                 );
         builder.addStateStore(store);
 
-        Jaxb2Marshaller marshaller = new Jaxb2Marshaller();
-        marshaller.setClassesToBeBound(E535AccountPostingRequest.class, E535AccountPostingResponse.class);
-        marshaller.setSchemas(new ClassPathResource("xsd/e535/account-posting-e535.xsd"));
-        XmlObjectConverterWithJaxbElement<E535AccountPostingRequest> reqConverter =
-                new XmlObjectConverterWithJaxbElement<>(E535AccountPostingRequest.class, marshaller, marshaller);
-        XmlObjectConverterWithJaxbElement<E535AccountPostingResponse> resConverter =
-                new XmlObjectConverterWithJaxbElement<>(E535AccountPostingResponse.class, marshaller, marshaller);
-
-        E535PostingService e535PostingService = new E535PostingService(
-                new RcbsPostingService(RcbsClientConfig.defaults(rcbsBaseUrl + "/eportal/E535")),
-                reqConverter,
-                resConverter
-        );
-        RcbsClient rcbsClient = new DefaultRcbsClient(List.of(e535PostingService));
-
+        RcbsClient rcbsClient = rcbsClient(rcbsBaseUrl);
         ProcessorSupplier<String, String, String, String> supplier =
                 () -> new AsyncHttpProcessor(storeName, rcbsClient, RcbsApiType.E535, 120);
 
@@ -147,7 +161,49 @@ class AsyncHttpThroughputIntegrationTest {
         return builder.build();
     }
 
-    private int startDelayedHttpServer() throws IOException {
+    private Topology buildSyncTopology(String rcbsBaseUrl) {
+        StreamsBuilder builder = new StreamsBuilder();
+
+        RcbsClient rcbsClient = rcbsClient(rcbsBaseUrl);
+        ProcessorSupplier<String, String, String, String> supplier =
+                () -> new SyncHttpProcessor(rcbsClient, RcbsApiType.E535);
+
+        builder.stream("xml-requests", Consumed.with(Serdes.String(), Serdes.String()))
+                .process(supplier)
+                .to("xml-responses");
+
+        return builder.build();
+    }
+
+    private RcbsClient rcbsClient(String rcbsBaseUrl) {
+        Jaxb2Marshaller marshaller = new Jaxb2Marshaller();
+        marshaller.setClassesToBeBound(E535AccountPostingRequest.class, E535AccountPostingResponse.class);
+        marshaller.setSchemas(new ClassPathResource("xsd/e535/account-posting-e535.xsd"));
+
+        XmlObjectConverterWithJaxbElement<E535AccountPostingRequest> reqConverter =
+                new XmlObjectConverterWithJaxbElement<>(E535AccountPostingRequest.class, marshaller, marshaller);
+        XmlObjectConverterWithJaxbElement<E535AccountPostingResponse> resConverter =
+                new XmlObjectConverterWithJaxbElement<>(E535AccountPostingResponse.class, marshaller, marshaller);
+
+        E535PostingService e535PostingService = new E535PostingService(
+                new RcbsPostingService(RcbsClientConfig.defaults(rcbsBaseUrl + "/eportal/E535")),
+                reqConverter,
+                resConverter
+        );
+        return new DefaultRcbsClient(List.of(e535PostingService));
+    }
+
+    private static Properties defaultStreamsProps(String appId) {
+        Properties props = new Properties();
+        props.put(StreamsConfig.APPLICATION_ID_CONFIG, appId);
+        props.put(StreamsConfig.BOOTSTRAP_SERVERS_CONFIG, "dummy:9092");
+        props.put(StreamsConfig.DEFAULT_KEY_SERDE_CLASS_CONFIG, Serdes.StringSerde.class);
+        props.put(StreamsConfig.DEFAULT_VALUE_SERDE_CLASS_CONFIG, Serdes.StringSerde.class);
+        props.put(StreamsConfig.COMMIT_INTERVAL_MS_CONFIG, 1000);
+        return props;
+    }
+
+    private int startDelayedHttpServer(long delayMs) throws IOException {
         server = HttpServer.create(new InetSocketAddress("localhost", 0), 0);
         server.createContext("/eportal/E535", exchange -> {
             byte[] requestBytes;
@@ -159,7 +215,7 @@ class AsyncHttpThroughputIntegrationTest {
             String requestId = extractRequestId(requestXml);
 
             try {
-                Thread.sleep(200);
+                Thread.sleep(delayMs);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 exchange.sendResponseHeaders(500, -1);

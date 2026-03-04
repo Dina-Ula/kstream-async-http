@@ -1,52 +1,35 @@
 package demo.rcbs;
 
-import org.apache.http.client.config.RequestConfig;
-import org.apache.http.client.methods.CloseableHttpResponse;
-import org.apache.http.client.methods.HttpPost;
-import org.apache.http.entity.StringEntity;
-import org.apache.http.impl.client.*;
-import org.apache.http.impl.conn.PoolingHttpClientConnectionManager;
-import org.apache.http.util.EntityUtils;
+import org.springframework.ws.client.core.WebServiceTemplate;
+import org.springframework.ws.pox.dom.DomPoxMessageFactory;
+import org.springframework.ws.transport.http.HttpUrlConnectionMessageSender;
+import org.springframework.xml.transform.StringSource;
 
-import java.nio.charset.StandardCharsets;
-import java.util.concurrent.TimeUnit;
+import javax.xml.transform.stream.StreamResult;
+import java.io.StringWriter;
+import java.time.Duration;
 
 public final class HttpXmlClient implements AutoCloseable {
-    private final CloseableHttpClient http;
+    private final WebServiceTemplate template;
 
     public HttpXmlClient(int maxTotal, int maxPerRoute, int connectMs, int readMs) {
-        PoolingHttpClientConnectionManager cm = new PoolingHttpClientConnectionManager();
-        cm.setMaxTotal(maxTotal);
-        cm.setDefaultMaxPerRoute(maxPerRoute);
+        DomPoxMessageFactory messageFactory = new DomPoxMessageFactory();
+        HttpUrlConnectionMessageSender sender = new HttpUrlConnectionMessageSender();
+        sender.setConnectionTimeout(Duration.ofMillis(connectMs));
+        sender.setReadTimeout(Duration.ofMillis(readMs));
 
-        RequestConfig rc = RequestConfig.custom()
-                .setConnectTimeout(connectMs)
-                .setConnectionRequestTimeout(connectMs) // pool wait
-                .setSocketTimeout(readMs)
-                .build();
-
-        this.http = HttpClients.custom()
-                .setConnectionManager(cm)
-                .setDefaultRequestConfig(rc)
-                .evictExpiredConnections()
-                .evictIdleConnections(30, TimeUnit.SECONDS)
-                .build();
+        this.template = new WebServiceTemplate(messageFactory);
+        this.template.setMessageSender(sender);
     }
 
     public String postXml(String url, String xml) throws Exception {
-        HttpPost post = new HttpPost(url);
-        post.setHeader("Content-Type", "application/xml; charset=UTF-8");
-        post.setEntity(new StringEntity(xml, StandardCharsets.UTF_8));
-
-        try (CloseableHttpResponse resp = http.execute(post)) {
-            int code = resp.getStatusLine().getStatusCode();
-            String body = EntityUtils.toString(resp.getEntity(), StandardCharsets.UTF_8);
-            if (code >= 200 && code < 300) return body;
-            throw new RuntimeException("HTTP " + code + " body=" + body);
-        }
+        StringWriter writer = new StringWriter();
+        StreamResult result = new StreamResult(writer);
+        template.sendSourceAndReceiveToResult(url, new StringSource(xml), result);
+        return writer.toString();
     }
 
     @Override public void close() throws Exception {
-        http.close();
+        // no-op for HttpUrlConnectionMessageSender
     }
 }

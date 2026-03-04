@@ -1,14 +1,14 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
-           targetNamespace="urn:demo:rcbs:e535"
-           xmlns="urn:demo:rcbs:e535"
+           targetNamespace="urn:demo:rcbs:e536"
+           xmlns="urn:demo:rcbs:e536"
            elementFormDefault="qualified"
            attributeFormDefault="unqualified">
 
-    <xs:element name="E535AccountPostingRequest" type="E535AccountPostingRequestType"/>
-    <xs:element name="E535AccountPostingResponse" type="E535AccountPostingResponseType"/>
+    <xs:element name="E536AccountPostingRequest" type="E536AccountPostingRequestType"/>
+    <xs:element name="E536AccountPostingResponse" type="E536AccountPostingResponseType"/>
 
-    <xs:complexType name="E535AccountPostingRequestType">
+    <xs:complexType name="E536AccountPostingRequestType">
         <xs:sequence>
             <xs:element name="requestId" type="xs:string"/>
             <xs:element name="amount" type="xs:decimal"/>
@@ -16,13 +16,13 @@
         </xs:sequence>
     </xs:complexType>
 
-    <xs:complexType name="E535AccountPostingResponseType">
+    <xs:complexType name="E536AccountPostingResponseType">
         <xs:sequence>
             <xs:element name="requestId" type="xs:string"/>
             <xs:element name="status" type="xs:string"/>
             <xs:element name="reference" type="xs:string" minOccurs="0"/>
             <xs:element name="message" type="xs:string" minOccurs="0"/>
-            <xs:element name="e535Reference" type="xs:string" minOccurs="0"/>
+            <xs:element name="e536Reference" type="xs:string" minOccurs="0"/>
         </xs:sequence>
     </xs:complexType>
 </xs:schema>

@@ -1,0 +1,38 @@
+spring:
+  application:
+    name: kstreams-async-client
+  cloud:
+    function:
+      definition: rcbsProcess
+    stream:
+      bindings:
+        rcbsProcess-in-0:
+          destination: xml-requests
+        rcbsProcess-out-0:
+          destination: xml-responses
+      kafka:
+        streams:
+          binder:
+            brokers: localhost:9092
+            configuration:
+              commit.interval.ms: 1000
+              default.key.serde: org.apache.kafka.common.serialization.Serdes$StringSerde
+              default.value.serde: org.apache.kafka.common.serialization.Serdes$StringSerde
+          bindings:
+            rcbsProcess-in-0:
+              consumer:
+                application-id: kstreams-async-http-xml-demo
+
+app:
+  async:
+    max-in-flight: 120
+    store-name: request-store
+    api-type: E535
+
+rcbs:
+  e535-url: http://localhost:8080/eportal/E535
+  e536-url: http://localhost:8080/eportal/E536
+  e537-url: http://localhost:8080/eportal/E537
+  e538-url: http://localhost:8080/eportal/E538
+  e539-url: http://localhost:8080/eportal/E539
+  rate-limit-per-second: 200

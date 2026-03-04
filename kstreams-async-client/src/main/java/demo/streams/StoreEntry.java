@@ -4,6 +4,7 @@ import java.io.Serializable;
 
 public class StoreEntry implements Serializable {
     public String requestId;
+    public String apiType;
     public String requestXml;
 
     public String status; // PENDING / IN_FLIGHT / SUCCEEDED / RETRYABLE
@@ -13,9 +14,10 @@ public class StoreEntry implements Serializable {
 
     public StoreEntry() {}
 
-    public StoreEntry(String requestId, String requestXml, String status,
+    public StoreEntry(String requestId, String apiType, String requestXml, String status,
                       int attemptNo, long nextRetryAtMs, long updatedAtMs) {
         this.requestId = requestId;
+        this.apiType = apiType;
         this.requestXml = requestXml;
         this.status = status;
         this.attemptNo = attemptNo;

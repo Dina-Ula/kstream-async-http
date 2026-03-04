@@ -1,7 +1,5 @@
 package demo.rcbs;
 
-import demo.rcbs.xml.AccountPostingRequest;
-import demo.rcbs.xml.AccountPostingResponse;
 import io.github.resilience4j.bulkhead.*;
 import io.github.resilience4j.circuitbreaker.*;
 import io.github.resilience4j.decorators.Decorators;
@@ -25,7 +23,6 @@ public final class RcbsPostingService implements AutoCloseable {
     private final CircuitBreaker cb;
     private final RateLimiter rl;
     private final Bulkhead bh;
-    private final RcbsXmlBinding xmlBinding;
 
     private final String url;
 
@@ -33,7 +30,6 @@ public final class RcbsPostingService implements AutoCloseable {
         Objects.requireNonNull(cfg);
 
         this.url = cfg.url();
-        this.xmlBinding = new RcbsXmlBinding();
 
         this.http = new HttpXmlClient(
                 cfg.httpMaxTotal(), cfg.httpMaxPerRoute(),
@@ -82,7 +78,11 @@ public final class RcbsPostingService implements AutoCloseable {
 
     /** Async call: returns immediately with a future; blocking HTTP runs on rcbs-io-* threads. */
     public CompletableFuture<String> postAsync(String requestId, String requestXml) {
+        return asyncRunner.runAsync(() -> postSync(requestId, requestXml));
+    }
 
+    /** Sync call: caller thread blocks until HTTP response is received. */
+    public String postSync(String requestId, String requestXml) {
         Supplier<String> blockingCall = () -> {
             try {
                 return http.postXml(url, requestXml);
@@ -97,19 +97,7 @@ public final class RcbsPostingService implements AutoCloseable {
                 .withBulkhead(bh)
                 .decorate();
 
-        return asyncRunner.runAsync(protectedCall);
-    }
-
-    /** Async typed call using JAXB + XSD validation on both marshal and unmarshal paths. */
-    public CompletableFuture<AccountPostingResponse> postAsync(AccountPostingRequest request) {
-        Objects.requireNonNull(request, "request must not be null");
-        final String requestId = request.getRequestId();
-        if (requestId == null || requestId.isBlank()) {
-            throw new IllegalArgumentException("request.requestId must not be blank");
-        }
-
-        final String xmlRequest = xmlBinding.marshalRequest(request);
-        return postAsync(requestId, xmlRequest).thenApply(xmlBinding::unmarshalResponse);
+        return protectedCall.get();
     }
 
     @Override

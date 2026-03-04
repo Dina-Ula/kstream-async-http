@@ -46,14 +46,67 @@ public class PostingController {
         String ref = "E535-" + UUID.randomUUID().toString().substring(0, 8);
 
         return """
-      <E535AccountPostingResponse xmlns="urn:demo:rcbs:e535" xmlns:c="urn:demo:rcbs">
-        <c:requestId>%s</c:requestId>
-        <c:status>SUCCESS</c:status>
-        <c:reference>%s</c:reference>
-        <c:message>Posted</c:message>
+      <E535AccountPostingResponse xmlns="urn:demo:rcbs:e535">
+        <requestId>%s</requestId>
+        <status>SUCCESS</status>
+        <reference>%s</reference>
+        <message>Posted</message>
         <e535Reference>%s</e535Reference>
       </E535AccountPostingResponse>
       """.formatted(escapeXml(requestId), escapeXml(ref), escapeXml(ref));
+    }
+
+    @PostMapping(
+            value = "/eportal/E536",
+            consumes = {MediaType.APPLICATION_XML_VALUE, MediaType.TEXT_XML_VALUE},
+            produces = MediaType.APPLICATION_XML_VALUE
+    )
+    public String postE536(@RequestBody String requestXml) throws Exception {
+        return flavoredResponse("E536", requestXml);
+    }
+
+    @PostMapping(
+            value = "/eportal/E537",
+            consumes = {MediaType.APPLICATION_XML_VALUE, MediaType.TEXT_XML_VALUE},
+            produces = MediaType.APPLICATION_XML_VALUE
+    )
+    public String postE537(@RequestBody String requestXml) throws Exception {
+        return flavoredResponse("E537", requestXml);
+    }
+
+    @PostMapping(
+            value = "/eportal/E538",
+            consumes = {MediaType.APPLICATION_XML_VALUE, MediaType.TEXT_XML_VALUE},
+            produces = MediaType.APPLICATION_XML_VALUE
+    )
+    public String postE538(@RequestBody String requestXml) throws Exception {
+        return flavoredResponse("E538", requestXml);
+    }
+
+    @PostMapping(
+            value = "/eportal/E539",
+            consumes = {MediaType.APPLICATION_XML_VALUE, MediaType.TEXT_XML_VALUE},
+            produces = MediaType.APPLICATION_XML_VALUE
+    )
+    public String postE539(@RequestBody String requestXml) throws Exception {
+        return flavoredResponse("E539", requestXml);
+    }
+
+    private static String flavoredResponse(String api, String requestXml) throws Exception {
+        Thread.sleep(200);
+        String requestId = extractRequestId(requestXml);
+        String ref = api + "-" + UUID.randomUUID().toString().substring(0, 8);
+        String ns = "urn:demo:rcbs:" + api.toLowerCase();
+        String local = api.toLowerCase() + "Reference";
+        return """
+      <%sAccountPostingResponse xmlns="%s">
+        <requestId>%s</requestId>
+        <status>SUCCESS</status>
+        <reference>%s</reference>
+        <message>Posted</message>
+        <%s>%s</%s>
+      </%sAccountPostingResponse>
+      """.formatted(api, ns, escapeXml(requestId), escapeXml(ref), local, escapeXml(ref), local, api);
     }
 
     private static String extractRequestId(String xml) {

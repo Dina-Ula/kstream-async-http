@@ -11,16 +11,16 @@ import jakarta.xml.bind.annotation.XmlType;
 @XmlType(name = "E535AccountPostingResponseType", namespace = "urn:demo:rcbs:e535",
         propOrder = {"requestId", "status", "reference", "message", "e535Reference"})
 public class E535AccountPostingResponse {
-    @XmlElement(name = "requestId", namespace = "urn:demo:rcbs", required = true)
+    @XmlElement(name = "requestId", namespace = "urn:demo:rcbs:e535", required = true)
     private String requestId;
 
-    @XmlElement(name = "status", namespace = "urn:demo:rcbs", required = true)
+    @XmlElement(name = "status", namespace = "urn:demo:rcbs:e535", required = true)
     private String status;
 
-    @XmlElement(name = "reference", namespace = "urn:demo:rcbs")
+    @XmlElement(name = "reference", namespace = "urn:demo:rcbs:e535")
     private String reference;
 
-    @XmlElement(name = "message", namespace = "urn:demo:rcbs")
+    @XmlElement(name = "message", namespace = "urn:demo:rcbs:e535")
     private String message;
 
     @XmlElement(name = "e535Reference", namespace = "urn:demo:rcbs:e535")

@@ -1,9 +1,7 @@
 package demo.streams;
 
-import demo.rcbs.CoreRcbsApiHandler;
-import demo.rcbs.E535RcbsApiHandler;
-import demo.rcbs.RcbsApiDispatcher;
-import demo.rcbs.RcbsClientConfig;
+import demo.rcbs.RcbsApiType;
+import demo.rcbs.RcbsClient;
 import org.apache.kafka.streams.processor.api.*;
 import org.apache.kafka.streams.processor.PunctuationType;
 import org.apache.kafka.streams.state.KeyValueStore;
@@ -20,24 +18,18 @@ public class AsyncHttpProcessor implements Processor<String, String, String, Str
             Pattern.compile("<requestId>(.*?)</requestId>", Pattern.DOTALL);
 
     private final String storeName;
-    private final String baseUrl;
-
+    private final RcbsClient rcbsClient;
+    private final RcbsApiType defaultApiType;
     private final Semaphore inFlight;
-    private final int maxInFlight;
-    private final int poolSize;
-    private final int rateLimitPerSecond;
     private final Queue<Completion> completions = new ConcurrentLinkedQueue<>();
 
     private ProcessorContext<String, String> ctx;
     private KeyValueStore<String, StoreEntry> store;
-    private RcbsApiDispatcher dispatcher;
 
-    public AsyncHttpProcessor(String storeName, String baseUrl, int poolSize, int maxInFlight, int rateLimitPerSecond) {
+    public AsyncHttpProcessor(String storeName, RcbsClient rcbsClient, RcbsApiType defaultApiType, int maxInFlight) {
         this.storeName = storeName;
-        this.baseUrl = baseUrl;
-        this.maxInFlight = maxInFlight;
-        this.poolSize = poolSize;
-        this.rateLimitPerSecond = rateLimitPerSecond;
+        this.rcbsClient = rcbsClient;
+        this.defaultApiType = defaultApiType;
         this.inFlight = new Semaphore(maxInFlight);
     }
 
@@ -47,10 +39,6 @@ public class AsyncHttpProcessor implements Processor<String, String, String, Str
     public void init(ProcessorContext<String, String> context) {
         this.ctx = context;
         this.store = context.getStateStore(storeName);
-        this.dispatcher = new RcbsApiDispatcher(java.util.List.of(
-                new CoreRcbsApiHandler(clientConfig("/post")),
-                new E535RcbsApiHandler(clientConfig("/eportal/E535"))
-        ));
 
         // drain completions frequently (low latency)
         context.schedule(Duration.ofMillis(10), PunctuationType.WALL_CLOCK_TIME, this::onPunctuate);
@@ -60,11 +48,12 @@ public class AsyncHttpProcessor implements Processor<String, String, String, Str
     public void process(org.apache.kafka.streams.processor.api.Record<String, String> record) {
         String requestXml = record.value();
         String requestId = extractRequestId(requestXml);
+        String apiType = resolveApiType(record.key());
         long now = System.currentTimeMillis();
 
         StoreEntry existing = store.get(requestId);
         if (existing == null) {
-            existing = new StoreEntry(requestId, requestXml, "PENDING", 0, now, now);
+            existing = new StoreEntry(requestId, apiType, requestXml, "PENDING", 0, now, now);
             store.put(requestId, existing);
         }
 
@@ -75,11 +64,12 @@ public class AsyncHttpProcessor implements Processor<String, String, String, Str
             if (inFlight.tryAcquire()) {
                 int attempt = existing.attemptNo + 1;
                 StoreEntry inFlightEntry = new StoreEntry(
-                        requestId, existing.requestXml, "IN_FLIGHT", attempt, existing.nextRetryAtMs, now
+                        requestId, existing.apiType, existing.requestXml, "IN_FLIGHT", attempt, existing.nextRetryAtMs, now
                 );
                 store.put(requestId, inFlightEntry);
 
                 dispatchAsync(inFlightEntry);
+
             } else {
                 // backpressure -> small retry delay
                 existing.status = "RETRYABLE";
@@ -94,12 +84,16 @@ public class AsyncHttpProcessor implements Processor<String, String, String, Str
     }
 
     private void dispatchAsync(StoreEntry entry) {
-        dispatcher.postAsync(entry.requestXml)
+        RcbsApiType apiType = RcbsApiType.valueOf(entry.apiType);
+        rcbsClient.postAsync(apiType, entry.requestXml)
                 .whenComplete((respXml, err) -> {
                     try {
                         Throwable cause = (err instanceof CompletionException ce && ce.getCause() != null)
                                 ? ce.getCause()
                                 : err;
+
+                        //send the response to FPP if success/failure
+                        //kafka-client.
                         completions.add(new Completion(entry.requestId, entry.attemptNo, respXml, cause));
                     } finally {
                         inFlight.release();
@@ -110,7 +104,10 @@ public class AsyncHttpProcessor implements Processor<String, String, String, Str
     private void onPunctuate(long timestamp) {
         long now = System.currentTimeMillis();
 
-        // A) Drain completions and emit responses
+        // A) Drain completions
+
+        final int size = completions.size();
+
         Completion c;
         while ((c = completions.poll()) != null) {
             StoreEntry current = store.get(c.requestId);
@@ -166,23 +163,22 @@ public class AsyncHttpProcessor implements Processor<String, String, String, Str
 
     @Override
     public void close() {
-        try { dispatcher.close(); } catch (Exception ignored) {}
+        // Dispatcher lifecycle is managed by Spring / caller.
     }
 
-    private RcbsClientConfig clientConfig(String path) {
-        return new RcbsClientConfig(
-                joinUrl(baseUrl, path),
-                200, 200,
-                2000, 10000,
-                poolSize, 10_000,
-                maxInFlight,
-                rateLimitPerSecond
-        );
-    }
-
-    private static String joinUrl(String base, String path) {
-        String normalizedBase = base.endsWith("/") ? base.substring(0, base.length() - 1) : base;
-        String normalizedPath = path.startsWith("/") ? path : "/" + path;
-        return normalizedBase + normalizedPath;
+    private String resolveApiType(String recordKey) {
+        if (recordKey == null || recordKey.isBlank()) {
+            return defaultApiType.name();
+        }
+        int idx = recordKey.indexOf(':');
+        if (idx <= 0) {
+            return defaultApiType.name();
+        }
+        String prefix = recordKey.substring(0, idx).trim();
+        try {
+            return RcbsApiType.valueOf(prefix).name();
+        } catch (IllegalArgumentException ignored) {
+            return defaultApiType.name();
+        }
     }
 }
